@@ -1,4 +1,5 @@
 use std::{
+    borrow::BorrowMut,
     collections::HashMap,
     io::{prelude::*, BufReader},
     net::TcpStream,
@@ -166,4 +167,10 @@ impl Drop for HttpResponse<'_> {
 
         self.stream.write_all(response.as_bytes()).unwrap();
     }
+}
+
+pub fn handle_connection(stream: &mut TcpStream) -> (Result<HttpRequest, ()>, HttpResponse) {
+    let req = HttpRequest::try_from(stream.borrow_mut());
+    let res: HttpResponse = HttpResponse::new(stream);
+    (req, res)
 }

@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::fs::File;
 
 use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{CodecParameters, Decoder, DecoderOptions};
+use symphonia::core::codecs::{Decoder, DecoderOptions};
 use symphonia::core::errors::Error;
 use symphonia::core::formats::{FormatOptions, FormatReader};
 use symphonia::core::io::MediaSourceStream;

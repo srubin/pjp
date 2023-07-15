@@ -7,7 +7,6 @@ pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases o
 
 ### Todo
 
-- [ ] Build on github actions
 - [ ] Refactor to separate web server from the player
 - [ ] Persistent playlist storage
 - [ ] Playback consume mode (i.e., track is removed from the playlist when it ends)
@@ -19,6 +18,7 @@ pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases o
 - [ ] Tune track buffer cache
 - [ ] Scheduling system for determining when to do work (e.g., reading file tags) without affecting the playback thread? Only matters right now because we're locking the entire player state during the audio unit render callback. We probably don't need to do that.
 - [ ] Tests...?
+- [ ] Robust handling of output and file sample rates
 
 ### In progress
 
@@ -35,3 +35,4 @@ pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases o
 - [x] WAV file decoding and playback (before I decided to use symphonia for all audio decoding)
 - [x] Decode audio files with symphonia
 - [x] Smol http server framework to control the player
+- [x] Build on github actions

@@ -5,15 +5,15 @@ mod web_framework;
 use audio_source::{AudioMetadata, AudioSource};
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, IOType, SampleFormat};
-use log::info;
+use log::{error, info};
 use serde::Serialize;
 use serde_json;
 use std::borrow::BorrowMut;
 
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 
 use std::sync::{Arc, Mutex};
-use web_framework::{HttpMethod, HttpRequest, HttpResponse, HttpResponseCode};
+use web_framework::{HttpMethod, HttpResponseCode};
 
 type Playlist = Vec<Box<dyn AudioSource>>;
 
@@ -29,21 +29,54 @@ struct PlayerState {
     current_offset: u32,
 }
 
+impl PlayerState {
+    fn new() -> Self {
+        PlayerState {
+            state: PlaybackState::Paused,
+            playlist: vec![],
+            current_item: 0,
+            current_offset: 0,
+        }
+    }
+
+    fn next(&mut self) -> &mut Self {
+        self.current_offset = 0;
+        self.current_item = (self.current_item + 1) % self.playlist.len();
+        self
+    }
+
+    fn pause(&mut self) -> &mut Self {
+        self.state = PlaybackState::Paused;
+        self
+    }
+
+    fn play(&mut self) -> &mut Self {
+        self.state = PlaybackState::Playing;
+        self
+    }
+
+    fn toggle(&mut self) -> &mut Self {
+        match self.state {
+            PlaybackState::Paused => self.play(),
+            PlaybackState::Playing => self.pause(),
+        }
+    }
+
+    fn add_tracks(&mut self, paths: Vec<String>) -> &mut Self {
+        for path in paths {
+            let src = audio_file::AudioFileSource::new(path.into());
+            self.playlist.push(Box::new(src));
+        }
+        self
+    }
+}
+
 #[derive(Serialize)]
 struct PlayerStatusResponse<'a> {
     state: String,
     current_item: usize,
     current_offset: f64,
     playlist: Vec<&'a AudioMetadata>,
-}
-
-enum PlayerCommand {
-    Next,
-    Pause,
-    Play,
-    Toggle,
-    AddTracks { paths: Vec<String> },
-    Status,
 }
 
 // Abstraction:
@@ -55,14 +88,7 @@ enum PlayerCommand {
 // - moves onto the next item when the current item is done
 
 fn run_pjp() -> Result<(), coreaudio::Error> {
-    // let mut signal_index = 0;
-
-    let player_state = PlayerState {
-        state: PlaybackState::Playing,
-        playlist: vec![],
-        current_item: 0,
-        current_offset: 0,
-    };
+    let player_state = PlayerState::new();
 
     // from: https://github.com/RustAudio/coreaudio-rs/blob/master/examples/sine.rs
 
@@ -183,63 +209,11 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
         let mut stream = stream.unwrap();
         let mut player_state = ps.lock().unwrap();
 
-        let (req, mut res) = handle_connection(stream.borrow_mut());
+        let (req, mut res) = web_framework::handle_connection(stream.borrow_mut());
 
-        if let Ok(req) = req {
-            let (response_code, cmd) = match (&req.method, req.path.as_str(), &req) {
+        match req {
+            Ok(req) => match (&req.method, req.path.as_str(), &req) {
                 (HttpMethod::Get, "/status", _) => {
-                    (HttpResponseCode::Ok, Some(PlayerCommand::Status))
-                }
-                (HttpMethod::Post, "/next", _) => (HttpResponseCode::Ok, Some(PlayerCommand::Next)),
-                (HttpMethod::Post, "/pause", _) => {
-                    (HttpResponseCode::Ok, Some(PlayerCommand::Pause))
-                }
-                (HttpMethod::Post, "/play", _) => (HttpResponseCode::Ok, Some(PlayerCommand::Play)),
-                (HttpMethod::Post, "/toggle", _) => {
-                    (HttpResponseCode::Ok, Some(PlayerCommand::Toggle))
-                }
-                (HttpMethod::Post, "/add", req) => match serde_json::from_str(req.body.as_str()) {
-                    Ok(paths) => (
-                        HttpResponseCode::Ok,
-                        Some(PlayerCommand::AddTracks { paths }),
-                    ),
-                    Err(err) => {
-                        println!("error parsing json: {} {}", err, req.body);
-                        (HttpResponseCode::BadRequest, None)
-                    }
-                },
-                _ => (HttpResponseCode::NotFound, None),
-            };
-
-            res.response_code = response_code;
-
-            match cmd {
-                Some(PlayerCommand::Next) => {
-                    player_state.current_offset = 0;
-                    player_state.current_item =
-                        (player_state.current_item + 1) % player_state.playlist.len();
-                }
-                Some(PlayerCommand::Pause) => {
-                    player_state.state = PlaybackState::Paused;
-                }
-                Some(PlayerCommand::Play) => {
-                    player_state.state = PlaybackState::Playing;
-                }
-                Some(PlayerCommand::Toggle) => match player_state.state {
-                    PlaybackState::Paused => {
-                        player_state.state = PlaybackState::Playing;
-                    }
-                    PlaybackState::Playing => {
-                        player_state.state = PlaybackState::Paused;
-                    }
-                },
-                Some(PlayerCommand::AddTracks { paths }) => {
-                    for path in paths {
-                        let src = audio_file::AudioFileSource::new(path.into());
-                        player_state.playlist.push(Box::new(src));
-                    }
-                }
-                Some(PlayerCommand::Status) => {
                     let status = PlayerStatusResponse {
                         state: match player_state.state {
                             PlaybackState::Paused => "paused".to_string(),
@@ -255,21 +229,46 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                     };
 
                     res.set_json(&status);
+                    res.response_code = HttpResponseCode::Ok;
                 }
-                None => {}
+                (HttpMethod::Post, "/next", _) => {
+                    player_state.next();
+                    res.response_code = HttpResponseCode::Ok;
+                }
+                (HttpMethod::Post, "/pause", _) => {
+                    player_state.pause();
+                    res.response_code = HttpResponseCode::Ok;
+                }
+                (HttpMethod::Post, "/play", _) => {
+                    player_state.play();
+                    res.response_code = HttpResponseCode::Ok;
+                }
+                (HttpMethod::Post, "/toggle", _) => {
+                    player_state.toggle();
+                    res.response_code = HttpResponseCode::Ok;
+                }
+                (HttpMethod::Post, "/add", req) => match serde_json::from_str(req.body.as_str()) {
+                    Ok(paths) => {
+                        player_state.add_tracks(paths);
+                        res.response_code = HttpResponseCode::Ok;
+                    }
+                    Err(err) => {
+                        error!("error parsing json: {} {}", err, req.body);
+                        res.response_code = HttpResponseCode::BadRequest;
+                    }
+                },
+                _ => {
+                    res.response_code = HttpResponseCode::NotFound;
+                }
+            },
+            Err(_) => {
+                error!("error parsing request");
+                res.response_code = HttpResponseCode::InternalServerError;
             }
-        } else {
-            res.response_code = HttpResponseCode::InternalServerError;
         }
     }
 
     Ok(())
-}
-
-fn handle_connection(stream: &mut TcpStream) -> (Result<HttpRequest, ()>, HttpResponse) {
-    let req = HttpRequest::try_from(stream.borrow_mut());
-    let res: HttpResponse = HttpResponse::new(stream);
-    (req, res)
 }
 
 fn main() {
