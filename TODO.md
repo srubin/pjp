@@ -1,7 +1,5 @@
 # pjp
 
-![rust workflow](https://github.com/srubin/pjp/actions/workflows/rust.yml/badge.svg)
-
 pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases of][use-cases]) mpd.
 
 [pj]: https://peppersjam.com
