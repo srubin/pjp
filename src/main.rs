@@ -1,11 +1,13 @@
 mod audio_file;
 mod audio_source;
+mod player_state;
 mod web_framework;
 
 use audio_source::{AudioMetadata, AudioSource};
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, IOType, SampleFormat};
 use log::{error, info};
+use player_state::*;
 use serde::Serialize;
 use serde_json;
 use std::borrow::BorrowMut;
@@ -14,62 +16,6 @@ use std::net::TcpListener;
 
 use std::sync::{Arc, Mutex};
 use web_framework::{HttpMethod, HttpResponseCode};
-
-type Playlist = Vec<Box<dyn AudioSource>>;
-
-enum PlaybackState {
-    Playing,
-    Paused,
-}
-
-struct PlayerState {
-    state: PlaybackState,
-    playlist: Playlist,
-    current_item: usize,
-    current_offset: u32,
-}
-
-impl PlayerState {
-    fn new() -> Self {
-        PlayerState {
-            state: PlaybackState::Paused,
-            playlist: vec![],
-            current_item: 0,
-            current_offset: 0,
-        }
-    }
-
-    fn next(&mut self) -> &mut Self {
-        self.current_offset = 0;
-        self.current_item = (self.current_item + 1) % self.playlist.len();
-        self
-    }
-
-    fn pause(&mut self) -> &mut Self {
-        self.state = PlaybackState::Paused;
-        self
-    }
-
-    fn play(&mut self) -> &mut Self {
-        self.state = PlaybackState::Playing;
-        self
-    }
-
-    fn toggle(&mut self) -> &mut Self {
-        match self.state {
-            PlaybackState::Paused => self.play(),
-            PlaybackState::Playing => self.pause(),
-        }
-    }
-
-    fn add_tracks(&mut self, paths: Vec<String>) -> &mut Self {
-        for path in paths {
-            let src = audio_file::AudioFileSource::new(path.into());
-            self.playlist.push(Box::new(src));
-        }
-        self
-    }
-}
 
 #[derive(Serialize)]
 struct PlayerStatusResponse<'a> {
@@ -145,7 +91,7 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                 let current_item = locked_ps.current_item;
                 let mut current_offset = locked_ps.current_offset;
 
-                let src = locked_ps.playlist[current_item].as_mut();
+                let src = locked_ps.playlist[current_item].borrow_mut();
 
                 let mut signal = match src.get_buffer(current_offset) {
                     Some(s) => s,

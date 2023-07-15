@@ -2,7 +2,9 @@ use crate::audio_source::{AudioBuffer, AudioMetadata, AudioSource};
 use std::borrow::BorrowMut;
 use std::ffi::OsString;
 use std::fs::File;
+use std::str::FromStr;
 
+use serde::{Deserialize, Serialize};
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{Decoder, DecoderOptions};
 use symphonia::core::errors::Error;
@@ -20,6 +22,30 @@ pub struct AudioFileSource {
     decoded_buffers: Vec<AudioBuffer>,
     seek_pos: u32,
     metadata: Option<AudioMetadata>,
+}
+
+impl Serialize for AudioFileSource {
+    fn serialize<S>(
+        &self,
+        serializer: S,
+    ) -> Result<<S as serde::Serializer>::Ok, <S as serde::Serializer>::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(&self.filename.to_str().unwrap())
+    }
+}
+
+impl<'de> Deserialize<'de> for AudioFileSource {
+    fn deserialize<D>(deserializer: D) -> Result<AudioFileSource, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let filename =
+            OsString::from_str(std::str::from_utf8(&Vec::deserialize(deserializer)?).unwrap())
+                .unwrap();
+        Ok(AudioFileSource::new(filename))
+    }
 }
 
 impl AudioFileSource {
