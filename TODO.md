@@ -7,6 +7,7 @@ pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases o
 
 ### Todo
 
+- [ ] Build on github actions
 - [ ] Refactor to separate web server from the player
 - [ ] Persistent playlist storage
 - [ ] Playback consume mode (i.e., track is removed from the playlist when it ends)
@@ -17,6 +18,7 @@ pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases o
 - [ ] Prefetch first 5 seconds of every song in the playlist for instant track skipping
 - [ ] Tune track buffer cache
 - [ ] Scheduling system for determining when to do work (e.g., reading file tags) without affecting the playback thread? Only matters right now because we're locking the entire player state during the audio unit render callback. We probably don't need to do that.
+- [ ] Tests...?
 
 ### In progress
 
