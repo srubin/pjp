@@ -7,7 +7,7 @@ use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{CodecParameters, Decoder, DecoderOptions};
 use symphonia::core::errors::Error;
 use symphonia::core::formats::{FormatOptions, FormatReader};
-use symphonia::core::io::{MediaSourceStream};
+use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::{MetadataBuilder, MetadataOptions, StandardTagKey};
 use symphonia::core::probe::Hint;
 use symphonia_metadata::id3v2::read_id3v2;
@@ -223,19 +223,20 @@ impl AudioSource for AudioFileSource {
         match self.metadata {
             Some(ref metadata) => return metadata,
             None => {
-                let mut codec_params: Option<CodecParameters> = None;
-
-                if self.format.is_none() || self.track_id.is_none() {
-                    let (format, decoder, track_id) = self.make_decoder();
-                    codec_params = Some(format.tracks()[track_id as usize].codec_params.clone());
-                    self.format = Some(format);
-                    self.decoder = Some(decoder);
-                    self.track_id = Some(track_id);
-                } else {
-                    let format = self.format.as_ref().unwrap();
-                    let track_id = self.track_id.unwrap();
-                    codec_params = Some(format.tracks()[track_id as usize].codec_params.clone());
-                }
+                let codec_params = match (self.format.borrow_mut(), self.track_id) {
+                    (Some(ref format), Some(track_id)) => {
+                        Some(format.tracks()[track_id as usize].codec_params.clone())
+                    }
+                    _ => {
+                        let (format, decoder, track_id) = self.make_decoder();
+                        let codec_params =
+                            Some(format.tracks()[track_id as usize].codec_params.clone());
+                        self.format = Some(format);
+                        self.decoder = Some(decoder);
+                        self.track_id = Some(track_id);
+                        codec_params
+                    }
+                };
 
                 let codec_params = codec_params.unwrap();
                 let time_base = codec_params.time_base.unwrap();
