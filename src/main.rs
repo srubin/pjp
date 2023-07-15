@@ -2,16 +2,16 @@ mod audio_file;
 mod audio_source;
 mod web_framework;
 
-use audio_source::{AudioBuffer, AudioMetadata, AudioSource};
+use audio_source::{AudioMetadata, AudioSource};
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, IOType, SampleFormat};
 use log::info;
 use serde::Serialize;
 use serde_json;
 use std::borrow::BorrowMut;
-use std::f32::consts::PI;
+
 use std::net::{TcpListener, TcpStream};
-use std::path::PathBuf;
+
 use std::sync::{Arc, Mutex};
 use web_framework::{HttpMethod, HttpRequest, HttpResponse, HttpResponseCode};
 
@@ -57,7 +57,7 @@ enum PlayerCommand {
 fn run_pjp() -> Result<(), coreaudio::Error> {
     // let mut signal_index = 0;
 
-    let mut player_state = PlayerState {
+    let player_state = PlayerState {
         state: PlaybackState::Playing,
         playlist: vec![],
         current_item: 0,
@@ -96,7 +96,7 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
     audio_unit.set_render_callback(move |args| {
         let mut locked_ps = ps.lock().unwrap();
 
-        let current_item = locked_ps.current_item;
+        let _current_item = locked_ps.current_item;
 
         match locked_ps.state {
             PlaybackState::Paused => {
