@@ -13,26 +13,41 @@ pub enum PlaybackState {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(default)]
 pub struct PlayerState {
     pub state: PlaybackState,
     pub playlist: Playlist,
     pub current_item: usize,
     pub current_offset: u32,
+    pub consume: bool,
 }
 
-impl PlayerState {
-    pub fn new() -> Self {
+impl Default for PlayerState {
+    fn default() -> Self {
         PlayerState {
             state: PlaybackState::Paused,
             playlist: vec![],
             current_item: 0,
             current_offset: 0,
+            consume: true,
         }
+    }
+}
+
+impl PlayerState {
+    pub fn new() -> Self {
+        PlayerState::default()
     }
 
     pub fn next(&mut self) -> &mut Self {
-        self.current_offset = 0;
-        self.current_item = (self.current_item + 1) % self.playlist.len();
+        if self.playlist.len() > 0 {
+            self.current_offset = 0;
+            if self.consume {
+                self.playlist.remove(self.current_item);
+            } else {
+                self.current_item = (self.current_item + 1) % self.playlist.len();
+            }
+        }
         self
     }
 

@@ -8,8 +8,6 @@ pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases o
 ### Todo
 
 - [ ] Refactor to separate web server from the player
-- [ ] Persistent playlist storage
-- [ ] Playback consume mode (i.e., track is removed from the playlist when it ends)
 - [ ] Gapless playback between tracks
 - [ ] Scrobble plays to last.fm to replace mpdscribble
 - [ ] Close audio unit when not playing
@@ -36,3 +34,9 @@ pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases o
 - [x] Decode audio files with symphonia
 - [x] Smol http server framework to control the player
 - [x] Build on github actions
+- [x] Config for port
+- [x] Playback consume mode (i.e., track is removed from the playlist when it ends)
+- [x] Persistent playlist storage
+  - [x] Save when adding tracks
+  - [x] Save on next
+  - [x] Save periodically (30s?)

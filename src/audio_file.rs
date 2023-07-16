@@ -1,8 +1,6 @@
 use crate::audio_source::{AudioBuffer, AudioMetadata, AudioSource};
 use std::borrow::BorrowMut;
-use std::ffi::OsString;
 use std::fs::File;
-use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 use symphonia::core::audio::SampleBuffer;
@@ -14,42 +12,31 @@ use symphonia::core::meta::{MetadataBuilder, MetadataOptions, StandardTagKey};
 use symphonia::core::probe::Hint;
 use symphonia_metadata::id3v2::read_id3v2;
 
+#[derive(Serialize, Deserialize)]
 pub struct AudioFileSource {
-    pub filename: OsString,
+    pub filename: String,
+
+    #[serde(skip)]
     format: Option<Box<dyn FormatReader>>,
+
+    #[serde(skip)]
     decoder: Option<Box<dyn Decoder>>,
+
+    #[serde(skip)]
     track_id: Option<u32>,
+
+    #[serde(skip)]
     decoded_buffers: Vec<AudioBuffer>,
+
+    #[serde(skip)]
     seek_pos: u32,
+
+    #[serde(skip)]
     metadata: Option<AudioMetadata>,
 }
 
-impl Serialize for AudioFileSource {
-    fn serialize<S>(
-        &self,
-        serializer: S,
-    ) -> Result<<S as serde::Serializer>::Ok, <S as serde::Serializer>::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(&self.filename.to_str().unwrap())
-    }
-}
-
-impl<'de> Deserialize<'de> for AudioFileSource {
-    fn deserialize<D>(deserializer: D) -> Result<AudioFileSource, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let filename =
-            OsString::from_str(std::str::from_utf8(&Vec::deserialize(deserializer)?).unwrap())
-                .unwrap();
-        Ok(AudioFileSource::new(filename))
-    }
-}
-
 impl AudioFileSource {
-    pub fn new(filename: OsString) -> AudioFileSource {
+    pub fn new(filename: String) -> AudioFileSource {
         AudioFileSource {
             filename,
             format: None,
@@ -273,7 +260,7 @@ impl AudioSource for AudioFileSource {
                 let mut metadata = AudioMetadata {
                     dur,
                     artist: String::from(""),
-                    title: self.filename.to_str().unwrap().to_string(),
+                    title: self.filename.clone(),
                     album: String::from(""),
                 };
 

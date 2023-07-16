@@ -1,6 +1,7 @@
 mod audio_file;
 mod audio_source;
 mod player_state;
+mod storage;
 mod web_framework;
 
 use audio_source::{AudioMetadata, AudioSource};
@@ -15,7 +16,10 @@ use std::borrow::BorrowMut;
 use std::net::TcpListener;
 
 use std::sync::{Arc, Mutex};
+use std::thread;
 use web_framework::{HttpMethod, HttpResponseCode};
+
+use crate::storage::save_json;
 
 #[derive(Serialize)]
 struct PlayerStatusResponse<'a> {
@@ -34,7 +38,14 @@ struct PlayerStatusResponse<'a> {
 // - moves onto the next item when the current item is done
 
 fn run_pjp() -> Result<(), coreaudio::Error> {
-    let player_state = PlayerState::new();
+    let config = storage::load_config();
+    let player_state = match storage::load_json::<PlayerState>("player_state") {
+        Ok(ps) => ps,
+        Err(err) => {
+            println!("error loading player state: {}", err);
+            PlayerState::default()
+        }
+    };
 
     // from: https://github.com/RustAudio/coreaudio-rs/blob/master/examples/sine.rs
 
@@ -98,8 +109,7 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                     None => {
                         // next track
                         // FIXME: gapless
-                        locked_ps.current_item = (current_item + 1) % locked_ps.playlist.len();
-                        locked_ps.current_offset = 0;
+                        locked_ps.next();
                         return Ok(());
                     }
                 };
@@ -114,9 +124,7 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                             None => {
                                 // next track
                                 // FIXME: gapless
-                                locked_ps.current_item =
-                                    (current_item + 1) % locked_ps.playlist.len();
-                                locked_ps.current_offset = 0;
+                                locked_ps.next();
                                 return Ok(());
                             }
                         };
@@ -150,66 +158,101 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
 
     let ps = player_state_mutex.clone();
 
-    let listener = TcpListener::bind("0.0.0.0:7878").unwrap();
+    let address = format!("0.0.0.0:{}", config.port);
+
+    let listener = TcpListener::bind(address.clone()).unwrap();
+
+    info!("listening on {}", address);
+
+    let save_loop_ps = player_state_mutex.clone();
+    thread::spawn(move || {
+        // save every 30 seconds
+        loop {
+            thread::sleep(std::time::Duration::from_secs(30));
+            let save_res = save_json("player_state", &save_loop_ps);
+            if save_res.is_err() {
+                error!("error saving player state: {:?}", save_res);
+            }
+        }
+    });
+
     for stream in listener.incoming() {
+        let mut should_save = false;
         let mut stream = stream.unwrap();
-        let mut player_state = ps.lock().unwrap();
 
-        let (req, mut res) = web_framework::handle_connection(stream.borrow_mut());
+        {
+            let mut player_state = ps.lock().unwrap();
 
-        match req {
-            Ok(req) => match (&req.method, req.path.as_str(), &req) {
-                (HttpMethod::Get, "/status", _) => {
-                    let status = PlayerStatusResponse {
-                        state: match player_state.state {
-                            PlaybackState::Paused => "paused".to_string(),
-                            PlaybackState::Playing => "playing".to_string(),
-                        },
-                        current_item: player_state.current_item,
-                        current_offset: player_state.current_offset as f64 / 44100.0,
-                        playlist: player_state
-                            .playlist
-                            .iter_mut()
-                            .map(|src| src.get_metadata())
-                            .collect(),
-                    };
+            let (req, mut res) = web_framework::handle_connection(stream.borrow_mut());
 
-                    res.set_json(&status);
-                    res.response_code = HttpResponseCode::Ok;
-                }
-                (HttpMethod::Post, "/next", _) => {
-                    player_state.next();
-                    res.response_code = HttpResponseCode::Ok;
-                }
-                (HttpMethod::Post, "/pause", _) => {
-                    player_state.pause();
-                    res.response_code = HttpResponseCode::Ok;
-                }
-                (HttpMethod::Post, "/play", _) => {
-                    player_state.play();
-                    res.response_code = HttpResponseCode::Ok;
-                }
-                (HttpMethod::Post, "/toggle", _) => {
-                    player_state.toggle();
-                    res.response_code = HttpResponseCode::Ok;
-                }
-                (HttpMethod::Post, "/add", req) => match serde_json::from_str(req.body.as_str()) {
-                    Ok(paths) => {
-                        player_state.add_tracks(paths);
+            match req {
+                Ok(req) => match (&req.method, req.path.as_str(), &req) {
+                    (HttpMethod::Get, "/status", _) => {
+                        let status = PlayerStatusResponse {
+                            state: match player_state.state {
+                                PlaybackState::Paused => "paused".to_string(),
+                                PlaybackState::Playing => "playing".to_string(),
+                            },
+                            current_item: player_state.current_item,
+                            current_offset: player_state.current_offset as f64 / 44100.0,
+                            playlist: player_state
+                                .playlist
+                                .iter_mut()
+                                .map(|src| src.get_metadata())
+                                .collect(),
+                        };
+
+                        res.set_json(&status);
                         res.response_code = HttpResponseCode::Ok;
                     }
-                    Err(err) => {
-                        error!("error parsing json: {} {}", err, req.body);
-                        res.response_code = HttpResponseCode::BadRequest;
+                    (HttpMethod::Post, "/next", _) => {
+                        player_state.next();
+                        should_save = true;
+                        res.response_code = HttpResponseCode::Ok;
+                    }
+                    (HttpMethod::Post, "/pause", _) => {
+                        player_state.pause();
+                        should_save = true;
+                        res.response_code = HttpResponseCode::Ok;
+                    }
+                    (HttpMethod::Post, "/play", _) => {
+                        player_state.play();
+                        should_save = true;
+                        res.response_code = HttpResponseCode::Ok;
+                    }
+                    (HttpMethod::Post, "/toggle", _) => {
+                        player_state.toggle();
+                        should_save = true;
+                        res.response_code = HttpResponseCode::Ok;
+                    }
+                    (HttpMethod::Post, "/add", req) => {
+                        match serde_json::from_str(req.body.as_str()) {
+                            Ok(paths) => {
+                                player_state.add_tracks(paths);
+                                should_save = true;
+                                res.response_code = HttpResponseCode::Ok;
+                            }
+                            Err(err) => {
+                                error!("error parsing json: {} {}", err, req.body);
+                                res.response_code = HttpResponseCode::BadRequest;
+                            }
+                        }
+                    }
+                    _ => {
+                        res.response_code = HttpResponseCode::NotFound;
                     }
                 },
-                _ => {
-                    res.response_code = HttpResponseCode::NotFound;
+                Err(_) => {
+                    error!("error parsing request");
+                    res.response_code = HttpResponseCode::InternalServerError;
                 }
-            },
-            Err(_) => {
-                error!("error parsing request");
-                res.response_code = HttpResponseCode::InternalServerError;
+            }
+        } // player_state lock scope ends here
+
+        if should_save {
+            let save_res = save_json("player_state", &ps);
+            if save_res.is_err() {
+                error!("error saving player state: {:?}", save_res);
             }
         }
     }
