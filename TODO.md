@@ -22,7 +22,9 @@ pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases o
 
 - [ ] [Raycast](https://www.raycast.com/) extension for controlling pjp
   - [x] next / toggle / add song / add album
+  - [x] playlist listing
   - [ ] Replace mpc search with beets search
+  - [ ] include in this repo?
 - [ ] Learn rust idioms and best practices
 
 ### Done
