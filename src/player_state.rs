@@ -39,6 +39,13 @@ impl PlayerState {
         PlayerState::default()
     }
 
+    pub fn clear(&mut self) -> &mut Self {
+        self.playlist.clear();
+        self.current_item = 0;
+        self.current_offset = 0;
+        self
+    }
+
     pub fn next(&mut self) -> &mut Self {
         if self.playlist.len() > 0 {
             self.current_offset = 0;
@@ -47,6 +54,24 @@ impl PlayerState {
             } else {
                 self.current_item = (self.current_item + 1) % self.playlist.len();
             }
+        }
+        self
+    }
+
+    pub fn skip_to(&mut self, index: usize) -> &mut Self {
+        if index < self.playlist.len() && index < self.current_item {
+            // skipping to a previous song; never consume
+            self.current_item = index;
+            self.current_offset = 0;
+        } else if index > self.current_item {
+            let diff = index - self.current_item;
+            for _ in 0..diff {
+                // toggle consume behavior if necessary
+                self.next();
+            }
+        } else {
+            // same track, reset playhead
+            self.current_offset = 0;
         }
         self
     }

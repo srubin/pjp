@@ -216,6 +216,11 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                         res.set_json(&status);
                         res.response_code = HttpResponseCode::Ok;
                     }
+                    (HttpMethod::Post, "/clear", _) => {
+                        player_state.clear();
+                        should_save = true;
+                        res.response_code = HttpResponseCode::Ok;
+                    }
                     (HttpMethod::Post, "/next", _) => {
                         player_state.next();
                         should_save = true;
@@ -240,6 +245,19 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                         match serde_json::from_str(req.body.as_str()) {
                             Ok(paths) => {
                                 player_state.add_tracks(paths);
+                                should_save = true;
+                                res.response_code = HttpResponseCode::Ok;
+                            }
+                            Err(err) => {
+                                error!("error parsing json: {} {}", err, req.body);
+                                res.response_code = HttpResponseCode::BadRequest;
+                            }
+                        }
+                    }
+                    (HttpMethod::Post, "/skip-to", req) => {
+                        match serde_json::from_str(req.body.as_str()) {
+                            Ok(index) => {
+                                player_state.skip_to(index);
                                 should_save = true;
                                 res.response_code = HttpResponseCode::Ok;
                             }
