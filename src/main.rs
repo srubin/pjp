@@ -53,6 +53,8 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
     let scrobbler = Scrobbler::try_new();
     if let Err(err) = scrobbler {
         error!("error initializing scrobbler: {:?}", err);
+    } else if let Ok(mut scrobbler) = scrobbler {
+        scrobbler.get_loved_tracks();
     }
 
     // from: https://github.com/RustAudio/coreaudio-rs/blob/master/examples/sine.rs
