@@ -1,6 +1,7 @@
 mod audio_file;
 mod audio_source;
 mod player_state;
+mod scrobbler;
 mod storage;
 mod web_framework;
 
@@ -19,6 +20,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use web_framework::{HttpMethod, HttpResponseCode};
 
+use crate::scrobbler::Scrobbler;
 use crate::storage::save_json;
 
 #[derive(Serialize)]
@@ -47,6 +49,11 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
         }
     };
     player_state.validate();
+
+    let scrobbler = Scrobbler::try_new();
+    if let Err(err) = scrobbler {
+        error!("error initializing scrobbler: {:?}", err);
+    }
 
     // from: https://github.com/RustAudio/coreaudio-rs/blob/master/examples/sine.rs
 

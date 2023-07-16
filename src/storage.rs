@@ -10,12 +10,20 @@ use directories::ProjectDirs;
 #[serde(default)]
 pub struct PjpConfig {
     pub port: String,
+    pub last_fm_api_key: Option<String>,
+    pub last_fm_username: Option<String>,
+    pub last_fm_password: Option<String>,
+    pub last_fm_secret_key: Option<String>,
 }
 
 impl Default for PjpConfig {
     fn default() -> Self {
         PjpConfig {
             port: "7878".into(),
+            last_fm_api_key: None,
+            last_fm_username: None,
+            last_fm_password: None,
+            last_fm_secret_key: None,
         }
     }
 }

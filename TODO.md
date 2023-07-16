@@ -9,7 +9,7 @@ pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases o
 
 Roughly prioritized (highest at top)
 
-- [ ] Scrobble plays to last.fm to replace mpdscribble
+- [ ] Save playlist when closing
 - [ ] Close audio unit when not playing
 - [ ] Gapless playback between tracks
 - [ ] Prefetch first 5 seconds of every song in the playlist for instant track skipping
@@ -22,6 +22,7 @@ Roughly prioritized (highest at top)
 
 ### In progress
 
+- [ ] Scrobble plays to last.fm to replace mpdscribble
 - [ ] [Raycast](https://www.raycast.com/) extension for controlling pjp
   - [x] next / toggle / add song / add album
   - [x] playlist listing
