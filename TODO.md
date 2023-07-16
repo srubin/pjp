@@ -26,7 +26,9 @@ Roughly prioritized (highest at top)
 - [ ] [Raycast](https://www.raycast.com/) extension for controlling pjp
   - [x] next / toggle / add song / add album
   - [x] playlist listing
-  - [ ] Replace mpc search with beets search
+  - [x] skip-to in playlist
+  - [x] Replace mpc search with beets search
+  - [ ] Set loved track in last.fm
   - [ ] include in this repo?
 - [ ] Learn rust idioms and best practices
 
