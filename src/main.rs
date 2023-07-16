@@ -39,13 +39,14 @@ struct PlayerStatusResponse<'a> {
 
 fn run_pjp() -> Result<(), coreaudio::Error> {
     let config = storage::load_config();
-    let player_state = match storage::load_json::<PlayerState>("player_state") {
+    let mut player_state = match storage::load_json::<PlayerState>("player_state") {
         Ok(ps) => ps,
         Err(err) => {
             println!("error loading player state: {}", err);
             PlayerState::default()
         }
     };
+    player_state.validate();
 
     // from: https://github.com/RustAudio/coreaudio-rs/blob/master/examples/sine.rs
 
@@ -98,6 +99,16 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                     mut data,
                     ..
                 } = args;
+
+                // if the playlist is empty, fill with silence
+                if locked_ps.playlist.len() == 0 {
+                    for channel in data.channels_mut() {
+                        for i in 0..channel.len() {
+                            channel[i] = 0.0;
+                        }
+                    }
+                    return Ok(());
+                }
 
                 let current_item = locked_ps.current_item;
                 let mut current_offset = locked_ps.current_offset;

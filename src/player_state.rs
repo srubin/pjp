@@ -73,6 +73,14 @@ impl PlayerState {
             let src = audio_file::AudioFileSource::new(path.into());
             self.playlist.push(src);
         }
+        self.validate();
+        self
+    }
+
+    /// Remove all non-existent tracks from the playlist
+    pub fn validate(&mut self) -> &mut Self {
+        self.playlist
+            .retain(|src| std::path::Path::new(&src.filename).exists());
         self
     }
 }
