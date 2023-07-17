@@ -1,7 +1,6 @@
 mod audio_file;
 mod audio_source;
 mod player_state;
-mod scrobbler;
 mod storage;
 mod web_framework;
 
@@ -14,14 +13,15 @@ use serde::Serialize;
 use serde_json;
 use std::borrow::BorrowMut;
 
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use web_framework::{HttpMethod, HttpResponseCode};
 
-use crate::scrobbler::Scrobbler;
 use crate::storage::save_json;
+use crate::web_framework::HttpResponse;
 
 #[derive(Serialize)]
 struct PlayerStatusResponse<'a> {
@@ -49,13 +49,6 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
         }
     };
     player_state.validate();
-
-    let scrobbler = Scrobbler::try_new();
-    if let Err(err) = scrobbler {
-        error!("error initializing scrobbler: {:?}", err);
-    } else if let Ok(mut scrobbler) = scrobbler {
-        scrobbler.get_loved_tracks();
-    }
 
     // from: https://github.com/RustAudio/coreaudio-rs/blob/master/examples/sine.rs
 
@@ -272,6 +265,37 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                             }
                             Err(err) => {
                                 error!("error parsing json: {} {}", err, req.body);
+                                res.response_code = HttpResponseCode::BadRequest;
+                            }
+                        }
+                    }
+                    (HttpMethod::Get, "now-playing", req) => {
+                        match (
+                            req.headers.get("accept"),
+                            req.headers.get("cache-control"),
+                            req.headers.get("connection"),
+                        ) {
+                            (Some(accept), Some(cache_control), Some(connection))
+                                if accept == "text/event-stream"
+                                    && cache_control == "no-cache"
+                                    && connection == "keep-alive" =>
+                            {
+                                res.response_code = HttpResponseCode::Ok;
+                                let id = "1";
+                                let current_item = player_state.current_item;
+                                if player_state.state == PlaybackState::Playing
+                                    && player_state.playlist.len() > 0
+                                {
+                                    let current_item_str = serde_json::to_string(
+                                        &player_state.playlist[current_item].get_metadata(),
+                                    )
+                                    .unwrap();
+                                    res.send_sse(id, "now-playing", &current_item_str);
+
+                                    // TODO: figure out how to preserve this response so we can continue to send events
+                                }
+                            }
+                            _ => {
                                 res.response_code = HttpResponseCode::BadRequest;
                             }
                         }

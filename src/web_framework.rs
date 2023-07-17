@@ -37,6 +37,7 @@ pub struct HttpResponse<'a> {
     pub headers: HashMap<String, String>,
     pub response_code: HttpResponseCode,
     json_body: Option<String>,
+    sent_response: bool,
 }
 
 impl FromStr for HttpMethod {
@@ -112,12 +113,13 @@ impl TryFrom<&mut TcpStream> for HttpRequest {
 }
 
 impl HttpResponse<'_> {
-    pub fn new(stream: &mut TcpStream) -> HttpResponse {
+    pub fn new(stream: &TcpStream) -> HttpResponse {
         HttpResponse {
             stream,
             headers: HashMap::new(),
             response_code: HttpResponseCode::Ok,
             json_body: None,
+            sent_response: false,
         }
     }
 
@@ -127,10 +129,12 @@ impl HttpResponse<'_> {
     {
         self.json_body = Some(serde_json::to_string(value).unwrap());
     }
-}
 
-impl Drop for HttpResponse<'_> {
-    fn drop(&mut self) {
+    fn send_response(&mut self) {
+        if self.sent_response {
+            return;
+        }
+
         let mut response = String::from("HTTP/1.1 ");
 
         response.push_str(match self.response_code {
@@ -166,6 +170,20 @@ impl Drop for HttpResponse<'_> {
         }
 
         self.stream.write_all(response.as_bytes()).unwrap();
+
+        self.sent_response = true;
+    }
+
+    pub fn send_sse(&mut self, id: &str, event: &str, data: &str) {
+        self.send_response();
+        let response = format!("id: {}\nevent: {}\ndata: {}\n\n", id, event, data);
+        self.stream.write_all(response.as_bytes()).unwrap();
+    }
+}
+
+impl Drop for HttpResponse<'_> {
+    fn drop(&mut self) {
+        self.send_response();
     }
 }
 
