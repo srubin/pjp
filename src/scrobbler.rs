@@ -1,9 +1,9 @@
+mod storage;
+
 use std::{borrow::BorrowMut, collections::HashMap};
 
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-
-use crate::storage;
 
 #[derive(Serialize, Deserialize)]
 struct LastFMToken {
@@ -249,7 +249,7 @@ mod tests {
         let mut map = HashMap::new();
         map.insert("foo".into(), "bar".into());
         map.insert("baz".into(), "qux".into());
-        let res = make_signature(map, "xyz");
+        let res = make_signature(&map, "xyz");
         assert_eq!(res, "5b44ff6a214ae37880ba22083aea0881");
         assert_eq!(res.len(), 32);
     }
@@ -264,3 +264,5 @@ mod tests {
     //     )
     // }
 }
+
+fn main() {}

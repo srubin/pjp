@@ -6,7 +6,7 @@ use crate::audio_file::{self, AudioFileSource};
 // The use case right now is just playing files, anyway.
 type Playlist = Vec<AudioFileSource>;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq)]
 pub enum PlaybackState {
     Playing,
     Paused,

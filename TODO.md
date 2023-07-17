@@ -23,6 +23,7 @@ Roughly prioritized (highest at top)
 ### In progress
 
 - [ ] Scrobble plays to last.fm to replace mpdscribble
+  - [ ] Decide on architecture. Separate executable, getting data from pjp via the pjp web server? SSE?
 - [ ] [Raycast](https://www.raycast.com/) extension for controlling pjp
   - [x] next / toggle / add song / add album
   - [x] playlist listing
