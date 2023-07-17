@@ -1,6 +1,11 @@
+use std::borrow::BorrowMut;
+
 use serde::{Deserialize, Serialize};
 
-use crate::audio_file::{self, AudioFileSource};
+use crate::{
+    audio_file::{self, AudioFileSource},
+    audio_source::{AudioMetadata, AudioSource},
+};
 
 // TODO?: could be AudioSource in theory, but serialization doesn't make as much sense for all formats.
 // The use case right now is just playing files, anyway.
@@ -20,6 +25,12 @@ pub struct PlayerState {
     pub current_item: usize,
     pub current_offset: u32,
     pub consume: bool,
+}
+
+#[derive(Serialize)]
+pub struct NowPlaying<'a> {
+    pub track: &'a AudioMetadata,
+    pub elapsed: f64,
 }
 
 impl Default for PlayerState {
@@ -107,5 +118,18 @@ impl PlayerState {
         self.playlist
             .retain(|src| std::path::Path::new(&src.filename).exists());
         self
+    }
+
+    pub fn now_playing(&mut self) -> Option<NowPlaying> {
+        if self.playlist.len() > 0 && self.state == PlaybackState::Playing {
+            let playlist: &mut Playlist = self.playlist.borrow_mut();
+            let track = playlist.get_mut(self.current_item).unwrap();
+            Some(NowPlaying {
+                track: track.get_metadata(),
+                elapsed: self.current_offset as f64 / 44100.0,
+            })
+        } else {
+            None
+        }
     }
 }

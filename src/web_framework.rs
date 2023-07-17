@@ -32,8 +32,8 @@ pub enum HttpResponseCode {
     BadRequest,
 }
 
-pub struct HttpResponse<'a> {
-    stream: &'a TcpStream,
+pub struct HttpResponse {
+    stream: TcpStream,
     pub headers: HashMap<String, String>,
     pub response_code: HttpResponseCode,
     json_body: Option<String>,
@@ -112,8 +112,8 @@ impl TryFrom<&mut TcpStream> for HttpRequest {
     }
 }
 
-impl HttpResponse<'_> {
-    pub fn new(stream: &TcpStream) -> HttpResponse {
+impl HttpResponse {
+    pub fn new(stream: TcpStream) -> HttpResponse {
         HttpResponse {
             stream,
             headers: HashMap::new(),
@@ -131,6 +131,8 @@ impl HttpResponse<'_> {
     }
 
     fn send_response(&mut self) {
+        // TODO: error handing
+
         if self.sent_response {
             return;
         }
@@ -174,20 +176,34 @@ impl HttpResponse<'_> {
         self.sent_response = true;
     }
 
-    pub fn send_sse(&mut self, id: &str, event: &str, data: &str) {
+    pub fn prep_sse(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.headers.insert(
+            String::from("Content-Type"),
+            String::from("text/event-stream"),
+        );
         self.send_response();
+        Ok(())
+    }
+
+    pub fn send_sse(
+        &mut self,
+        id: u32,
+        event: &str,
+        data: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let response = format!("id: {}\nevent: {}\ndata: {}\n\n", id, event, data);
-        self.stream.write_all(response.as_bytes()).unwrap();
+        self.stream.write_all(response.as_bytes())?;
+        Ok(())
     }
 }
 
-impl Drop for HttpResponse<'_> {
+impl Drop for HttpResponse {
     fn drop(&mut self) {
         self.send_response();
     }
 }
 
-pub fn handle_connection(stream: &mut TcpStream) -> (Result<HttpRequest, ()>, HttpResponse) {
+pub fn handle_connection(mut stream: TcpStream) -> (Result<HttpRequest, ()>, HttpResponse) {
     let req = HttpRequest::try_from(stream.borrow_mut());
     let res: HttpResponse = HttpResponse::new(stream);
     (req, res)

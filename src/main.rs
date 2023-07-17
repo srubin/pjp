@@ -7,7 +7,7 @@ mod web_framework;
 use audio_source::{AudioMetadata, AudioSource};
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, IOType, SampleFormat};
-use log::{error, info};
+use log::{debug, error, info};
 use player_state::*;
 use serde::Serialize;
 use serde_json;
@@ -189,6 +189,38 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
         }
     });
 
+    let mut subscribers: Arc<Mutex<Vec<HttpResponse>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let update_loop_ps = player_state_mutex.clone();
+    let update_loop_subs = subscribers.clone();
+    thread::spawn(move || {
+        let mut sse_id = 0;
+
+        // send now-playing events every 5 seconds
+        loop {
+            thread::sleep(std::time::Duration::from_secs(5));
+            debug!(
+                "sending now-playing event to {} subs",
+                update_loop_subs.lock().unwrap().len()
+            );
+            let mut ps = update_loop_ps.lock().unwrap();
+
+            if let Some(now_playing) = ps.now_playing() {
+                let now_playing_str = serde_json::to_string(&now_playing).unwrap();
+                update_loop_subs.lock().unwrap().retain_mut(|res| {
+                    match res.send_sse(sse_id, "now-playing", &now_playing_str) {
+                        Ok(_) => true,
+                        Err(err) => {
+                            info!("removing subscriber: {}", err);
+                            false
+                        }
+                    }
+                });
+                sse_id += 1;
+            }
+        }
+    });
+
     for stream in listener.incoming() {
         let mut should_save = false;
         let mut stream = stream.unwrap();
@@ -196,7 +228,7 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
         {
             let mut player_state = ps.lock().unwrap();
 
-            let (req, mut res) = web_framework::handle_connection(stream.borrow_mut());
+            let (req, mut res) = web_framework::handle_connection(stream);
 
             match req {
                 Ok(req) => match (&req.method, req.path.as_str(), &req) {
@@ -269,7 +301,7 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                             }
                         }
                     }
-                    (HttpMethod::Get, "now-playing", req) => {
+                    (HttpMethod::Get, "/now-playing", req) => {
                         match (
                             req.headers.get("accept"),
                             req.headers.get("cache-control"),
@@ -281,18 +313,13 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                                     && connection == "keep-alive" =>
                             {
                                 res.response_code = HttpResponseCode::Ok;
-                                let id = "1";
-                                let current_item = player_state.current_item;
-                                if player_state.state == PlaybackState::Playing
-                                    && player_state.playlist.len() > 0
-                                {
-                                    let current_item_str = serde_json::to_string(
-                                        &player_state.playlist[current_item].get_metadata(),
-                                    )
-                                    .unwrap();
-                                    res.send_sse(id, "now-playing", &current_item_str);
-
-                                    // TODO: figure out how to preserve this response so we can continue to send events
+                                match res.prep_sse() {
+                                    Ok(_) => {
+                                        subscribers.lock().unwrap().push(res);
+                                    }
+                                    Err(err) => {
+                                        error!("error preparing sse: {}", err);
+                                    }
                                 }
                             }
                             _ => {
