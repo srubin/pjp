@@ -195,12 +195,14 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
     let update_loop_subs = subscribers.clone();
     thread::spawn(move || {
         let mut sse_id = 0;
+        let mut prev_state = update_loop_ps.lock().unwrap().state;
+        let mut prev_playlist_len = update_loop_ps.lock().unwrap().playlist.len();
 
         // send now-playing events every 5 seconds
         loop {
             thread::sleep(std::time::Duration::from_secs(5));
             debug!(
-                "sending now-playing event to {} subs",
+                "sending event to {} subs",
                 update_loop_subs.lock().unwrap().len()
             );
             let mut ps = update_loop_ps.lock().unwrap();
@@ -217,7 +219,32 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                     }
                 });
                 sse_id += 1;
+            } else if ps.playlist.len() == 0 && prev_playlist_len > 0 {
+                update_loop_subs.lock().unwrap().retain_mut(|res| {
+                    match res.send_sse(sse_id, "playlist-empty", "") {
+                        Ok(_) => true,
+                        Err(err) => {
+                            info!("removing subscriber: {}", err);
+                            false
+                        }
+                    }
+                });
+                sse_id += 1;
+            } else if prev_state == PlaybackState::Playing && ps.state == PlaybackState::Paused {
+                update_loop_subs.lock().unwrap().retain_mut(|res| {
+                    match res.send_sse(sse_id, "paused", "") {
+                        Ok(_) => true,
+                        Err(err) => {
+                            info!("removing subscriber: {}", err);
+                            false
+                        }
+                    }
+                });
+                sse_id += 1;
             }
+
+            prev_state = ps.state;
+            prev_playlist_len = ps.playlist.len();
         }
     });
 
@@ -301,32 +328,22 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                             }
                         }
                     }
-                    (HttpMethod::Get, "/now-playing", req) => {
-                        match (
-                            req.headers.get("accept"),
-                            req.headers.get("cache-control"),
-                            req.headers.get("connection"),
-                        ) {
-                            (Some(accept), Some(cache_control), Some(connection))
-                                if accept == "text/event-stream"
-                                    && cache_control == "no-cache"
-                                    && connection == "keep-alive" =>
-                            {
-                                res.response_code = HttpResponseCode::Ok;
-                                match res.prep_sse() {
-                                    Ok(_) => {
-                                        subscribers.lock().unwrap().push(res);
-                                    }
-                                    Err(err) => {
-                                        error!("error preparing sse: {}", err);
-                                    }
+                    (HttpMethod::Get, "/events", req) => match req.headers.get("accept") {
+                        Some(accept) if accept == "text/event-stream" => {
+                            res.response_code = HttpResponseCode::Ok;
+                            match res.prep_sse() {
+                                Ok(_) => {
+                                    subscribers.lock().unwrap().push(res);
+                                }
+                                Err(err) => {
+                                    error!("error preparing sse: {}", err);
                                 }
                             }
-                            _ => {
-                                res.response_code = HttpResponseCode::BadRequest;
-                            }
                         }
-                    }
+                        _ => {
+                            res.response_code = HttpResponseCode::BadRequest;
+                        }
+                    },
                     _ => {
                         res.response_code = HttpResponseCode::NotFound;
                     }

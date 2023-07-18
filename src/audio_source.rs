@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub struct AudioBuffer {
     pub samples: Vec<Vec<f32>>,
@@ -7,7 +7,7 @@ pub struct AudioBuffer {
     pub offset: u32,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AudioMetadata {
     pub dur: f64,
     pub artist: String,
