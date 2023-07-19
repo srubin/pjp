@@ -161,8 +161,7 @@ impl Scrobbler {
         &mut self,
     ) -> Result<GetLovedTracksResult, Box<dyn std::error::Error>> {
         let username = self.username.clone();
-        self
-            .borrow_mut()
+        self.borrow_mut()
             .get::<GetLovedTracksResult>(
                 "user.getLovedTracks",
                 HashMap::from([("user".to_string(), username.as_str())]),
@@ -405,9 +404,7 @@ impl Scrobbler {
                 Ok(scrobbler)
             }
             _ => {
-                Err(
-                    "last.fm api key, secret, username, and password must be set in config".into(),
-                )
+                Err("last.fm api key, secret, username, and password must be set in config".into())
             }
         }
     }

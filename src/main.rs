@@ -89,8 +89,8 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                 // fill with silence
                 let Args { mut data, .. } = args;
                 for channel in data.channels_mut() {
-                    for i in 0..channel.len() {
-                        channel[i] = 0.0;
+                    for sample in channel.as_mut() {
+                        *sample = 0.0;
                     }
                 }
                 Ok(())
@@ -105,8 +105,8 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                 // if the playlist is empty, fill with silence
                 if locked_ps.playlist.len() == 0 {
                     for channel in data.channels_mut() {
-                        for i in 0..channel.len() {
-                            channel[i] = 0.0;
+                        for sample in channel.as_mut() {
+                            *sample = 0.0;
                         }
                     }
                     return Ok(());
