@@ -161,13 +161,13 @@ impl Scrobbler {
         &mut self,
     ) -> Result<GetLovedTracksResult, Box<dyn std::error::Error>> {
         let username = self.username.clone();
-        Ok(self
+        self
             .borrow_mut()
             .get::<GetLovedTracksResult>(
                 "user.getLovedTracks",
                 HashMap::from([("user".to_string(), username.as_str())]),
             )
-            .await?)
+            .await
     }
 
     pub async fn scrobble(&mut self) -> Result<LastFMGenericStatus, Box<dyn std::error::Error>> {
@@ -261,7 +261,7 @@ impl Scrobbler {
 
         if should_update_now_playing {
             if let Some(track) = &track {
-                match self.send_now_playing(&track).await {
+                match self.send_now_playing(track).await {
                     Ok(_) => debug!("set now playing"),
                     Err(err) => error!("error setting now playing: {}", err),
                 }
@@ -272,7 +272,7 @@ impl Scrobbler {
             self.now_playing_end = track;
         }
 
-        if self.to_scrobble.len() > 0 {
+        if !self.to_scrobble.is_empty() {
             match self.scrobble().await {
                 Ok(_) => debug!("scrobbled"),
                 Err(err) => error!("error scrobbling: {}", err),
@@ -326,9 +326,9 @@ async fn fetch_token(
         .post("https://ws.audioscrobbler.com/2.0/")
         .form(&[
             ("method", "auth.getMobileSession"),
-            ("password", &password),
-            ("username", &username),
-            ("api_key", &api_key),
+            ("password", password),
+            ("username", username),
+            ("api_key", api_key),
             ("api_sig", &signature),
             ("format", "json"),
         ])
@@ -357,7 +357,7 @@ fn make_signature(parameters: &HashMap<String, String>, secret: &str) -> String 
         signature.push_str(parameters.get(&key).unwrap());
     }
 
-    signature.push_str(&secret);
+    signature.push_str(secret);
 
     let digest = md5::compute(signature);
     format!("{digest:x}")
@@ -405,7 +405,7 @@ impl Scrobbler {
                 Ok(scrobbler)
             }
             _ => {
-                return Err(
+                Err(
                     "last.fm api key, secret, username, and password must be set in config".into(),
                 )
             }

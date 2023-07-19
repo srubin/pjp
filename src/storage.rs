@@ -1,7 +1,7 @@
 extern crate directories;
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use serde_json;
+
 use std::fs::{create_dir_all, File};
 
 use directories::ProjectDirs;
@@ -38,7 +38,7 @@ pub fn load_config() -> PjpConfig {
             let config: PjpConfig = serde_json::from_reader(config_file).unwrap();
             info!(
                 "loaded config from {}",
-                config_path.clone().to_str().unwrap(),
+                config_path.to_str().unwrap(),
             );
             config
         }
