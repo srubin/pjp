@@ -13,7 +13,7 @@ Roughly prioritized (highest at top)
 - [ ] Close audio unit when not playing
 - [ ] Gapless playback between tracks
 - [ ] Prefetch first 5 seconds of every song in the playlist for instant track skipping
-- [ ] Refactor to separate web server from the player
+- [ ] Refactor to separate web server from the player. Getting playlist metadata shouldn't interfere with playback, but right now it does because that operation is on the shared player state mutex
 - [ ] Tiny crossfade when switching tracks?
 - [ ] Tune track buffer cache
 - [ ] Scheduling system for determining when to do work (e.g., reading file tags) without affecting the playback thread? Only matters right now because we're locking the entire player state during the audio unit render callback. We probably don't need to do that.
@@ -23,7 +23,11 @@ Roughly prioritized (highest at top)
 ### In progress
 
 - [ ] Scrobble plays to last.fm to replace mpdscribble
-  - [ ] Decide on architecture. Separate executable, getting data from pjp via the pjp web server? SSE?
+  - [x] Decide on architecture. Separate executable, getting data from pjp via the pjp web server? SSE? (Going with separate executable and SSE)
+  - [ ] Write up arch
+  - [x] Implement MVP
+  - [ ] Simplify control flow. Job queue w/ backoff for sending data to last.fm, etc.)? State machine?
+  - [ ] unit tests
 - [ ] [Raycast](https://www.raycast.com/) extension for controlling pjp
   - [x] next / toggle / add song / add album
   - [x] playlist listing

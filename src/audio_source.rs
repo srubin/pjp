@@ -7,7 +7,7 @@ pub struct AudioBuffer {
     pub offset: u32,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AudioMetadata {
     pub dur: f64,
     pub artist: String,

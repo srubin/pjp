@@ -28,7 +28,7 @@ pub struct PlayerState {
     pub consume: bool,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NowPlaying {
     pub track: AudioMetadata,
     pub elapsed: f64,

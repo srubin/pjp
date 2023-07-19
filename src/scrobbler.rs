@@ -77,6 +77,11 @@ pub struct Scrobbler {
     api_key: String,
     secret_key: String,
 
+    to_scrobble: Vec<NowPlaying>,
+
+    now_playing_start: Option<NowPlaying>,
+    now_playing_end: Option<NowPlaying>,
+
     #[serde(skip)]
     client: Option<reqwest::Client>,
 }
@@ -165,12 +170,15 @@ impl Scrobbler {
             .await?)
     }
 
-    pub async fn scrobble(
-        &mut self,
-        tracks: Vec<&NowPlaying>,
-    ) -> Result<LastFMGenericStatus, Box<dyn std::error::Error>> {
+    pub async fn scrobble(&mut self) -> Result<LastFMGenericStatus, Box<dyn std::error::Error>> {
+        let rest = if self.to_scrobble.len() > 50 {
+            self.to_scrobble.split_off(50)
+        } else {
+            vec![]
+        };
+
         let mut params = HashMap::new();
-        for (i, track) in tracks.iter().enumerate() {
+        for (i, track) in self.to_scrobble.iter().enumerate() {
             params.insert(format!("artist[{}]", i), track.track.artist.clone());
             params.insert(format!("track[{}]", i), track.track.title.clone());
             params.insert(format!("duration[{}]", i), format!("{}", track.track.dur));
@@ -185,13 +193,95 @@ impl Scrobbler {
         match result.error {
             Some(err) => {
                 error!("error scrobbling: {:?}", err);
+
+                // https://www.last.fm/api/scrobbling
+                if err.code != "11" && err.code != "16" {
+                    // failure; don't retry
+                    self.to_scrobble = rest;
+                }
+
                 Err(err.text.into())
             }
-            None => Ok(result),
+            None => {
+                self.to_scrobble = rest;
+                Ok(result)
+            }
         }
     }
 
-    pub async fn now_playing(
+    pub async fn set_now_playing(
+        &mut self,
+        track: Option<NowPlaying>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut should_try_scrobble = false;
+        let mut should_update_now_playing = false;
+        let mut should_update_now_playing_end = false;
+
+        if let Some(was_playing) = &self.now_playing_start {
+            if let Some(now_playing) = &track {
+                if now_playing.track.title == was_playing.track.title
+                    && now_playing.track.artist == was_playing.track.artist
+                    && now_playing.start_ts == was_playing.start_ts
+                    && now_playing.elapsed >= was_playing.elapsed
+                {
+                    debug!("we're already playing this track");
+                    // we're already playing this track
+                    should_update_now_playing_end = true;
+                } else {
+                    should_try_scrobble = true;
+                    should_update_now_playing = true;
+                }
+            } else {
+                // we were playing something else, but now we're not playing anything
+                should_try_scrobble = true;
+                should_update_now_playing = true;
+            }
+        } else {
+            // we weren't playing anything
+            should_update_now_playing = true;
+        }
+
+        if should_try_scrobble {
+            // we were playing something else
+            match (&self.now_playing_start, &self.now_playing_end) {
+                (Some(was_playing_start), Some(was_playing_end)) => {
+                    let total_elapsed = was_playing_end.elapsed - was_playing_start.elapsed;
+                    if total_elapsed > 4.0 * 60.0
+                        || total_elapsed > 0.5 * was_playing_start.track.dur
+                    {
+                        // we've played half the track, or more than 4 minutes of it track
+                        self.to_scrobble.push(was_playing_start.clone());
+                    } else {
+                        debug!("not scrobbling, only played {} seconds", total_elapsed);
+                    }
+                }
+                (_, _) => {}
+            }
+        }
+
+        if should_update_now_playing {
+            if let Some(track) = &track {
+                match self.send_now_playing(&track).await {
+                    Ok(_) => debug!("set now playing"),
+                    Err(err) => error!("error setting now playing: {}", err),
+                }
+            }
+            self.now_playing_start = track;
+            self.now_playing_end = None;
+        } else if should_update_now_playing_end {
+            self.now_playing_end = track;
+        }
+
+        if self.to_scrobble.len() > 0 {
+            match self.scrobble().await {
+                Ok(_) => debug!("scrobbled"),
+                Err(err) => error!("error scrobbling: {}", err),
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn send_now_playing(
         &mut self,
         track: &NowPlaying,
     ) -> Result<LastFMGenericStatus, Box<dyn std::error::Error>> {
@@ -217,7 +307,7 @@ impl Scrobbler {
 }
 
 /// Following the auth procedure here: https://www.last.fm/api/mobileauth
-fn fetch_token(
+async fn fetch_token(
     username: &str,
     password: &str,
     api_key: &str,
@@ -231,7 +321,7 @@ fn fetch_token(
 
     let signature = make_signature(&params, secret_key);
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::Client::new();
     let res = client
         .post("https://ws.audioscrobbler.com/2.0/")
         .form(&[
@@ -242,9 +332,10 @@ fn fetch_token(
             ("api_sig", &signature),
             ("format", "json"),
         ])
-        .send()?;
+        .send()
+        .await?;
 
-    let body = res.text()?;
+    let body = res.text().await?;
 
     let res: AuthGetMobileSessionResult = serde_json::from_str(&body)?;
     Ok(res.session.key)
@@ -273,8 +364,8 @@ fn make_signature(parameters: &HashMap<String, String>, secret: &str) -> String 
 }
 
 impl Scrobbler {
-    pub fn try_new() -> Result<Self, Box<dyn std::error::Error>> {
-        let scrobbler = storage::load_json::<Scrobbler>("last_fm_session");
+    pub async fn try_new() -> Result<Self, Box<dyn std::error::Error>> {
+        let scrobbler = storage::load_json::<Scrobbler>("scrobbler");
         let config = storage::load_config();
 
         if let (Ok(scrobbler), Some(username)) = (scrobbler, config.last_fm_username.clone()) {
@@ -297,15 +388,19 @@ impl Scrobbler {
                     password.as_str(),
                     api_key.as_str(),
                     secret_key.as_str(),
-                )?;
+                )
+                .await?;
                 let scrobbler = Scrobbler {
                     token,
                     username,
                     api_key,
                     secret_key,
                     client: None,
+                    to_scrobble: vec![],
+                    now_playing_start: None,
+                    now_playing_end: None,
                 };
-                storage::save_json("last_fm_session", &scrobbler)?;
+                storage::save_json("scrobbler", &scrobbler)?;
                 info!("fetched new last.fm session");
                 Ok(scrobbler)
             }
@@ -351,7 +446,9 @@ async fn main() {
 
     let config = storage::load_config();
 
-    let mut scrobbler = Scrobbler::try_new().unwrap();
+    let mut scrobbler = Scrobbler::try_new().await.unwrap();
+
+    let _ = scrobbler.scrobble().await;
 
     let url = format!("http://127.0.0.1:{}/events", config.port);
     debug!("connecting to {}", url);
@@ -363,13 +460,17 @@ async fn main() {
             Ok(Event::Message(message)) => match message.event.as_str() {
                 "now-playing" => {
                     let now_playing: NowPlaying = serde_json::from_str(&message.data).unwrap();
-                    match scrobbler.now_playing(&now_playing).await {
-                        Ok(_) => debug!("set now playing"),
+                    match scrobbler.set_now_playing(Some(now_playing)).await {
+                        Ok(()) => debug!("done processing now playing"),
                         Err(err) => error!("error setting now playing: {}", err),
                     }
                 }
                 "playlist-empty" => {
                     debug!("playlist empty");
+                    match scrobbler.set_now_playing(None).await {
+                        Ok(()) => debug!("done processing now playing"),
+                        Err(err) => error!("error setting now playing: {}", err),
+                    }
                 }
                 "paused" => {
                     debug!("paused");
@@ -381,5 +482,7 @@ async fn main() {
                 es.close();
             }
         }
+
+        let _ = storage::save_json("scrobbler", &scrobbler);
     }
 }
