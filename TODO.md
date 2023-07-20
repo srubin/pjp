@@ -10,6 +10,7 @@ pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases o
 Roughly prioritized (highest at top)
 
 - [ ] Save playlist when closing
+- [ ] Bug: connecting bluetooth headphones while playing causes audio to stop
 - [ ] Close audio unit when not playing
 - [ ] Gapless playback between tracks
 - [ ] Prefetch first 5 seconds of every song in the playlist for instant track skipping
