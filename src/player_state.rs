@@ -114,16 +114,17 @@ impl PlayerState {
 
     pub fn pause(&mut self) -> &mut Self {
         self.state = PlaybackState::Paused;
-        self.current_item_start_ts = 0;
         self
     }
 
     pub fn play(&mut self) -> &mut Self {
         self.state = PlaybackState::Playing;
-        self.current_item_start_ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        if self.current_item_start_ts == 0 {
+            self.current_item_start_ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+        }
         self
     }
 
@@ -141,7 +142,9 @@ impl PlayerState {
             self.playlist.push(src);
         }
         self.validate();
-        if !self.playlist.is_empty() && init_playlist_len == 0 && self.state == PlaybackState::Playing
+        if !self.playlist.is_empty()
+            && init_playlist_len == 0
+            && self.state == PlaybackState::Playing
         {
             self.current_item_start_ts = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
