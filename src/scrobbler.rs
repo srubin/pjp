@@ -447,39 +447,46 @@ async fn main() {
 
     let _ = scrobbler.scrobble().await;
 
-    let url = format!("http://127.0.0.1:{}/events", config.port);
-    debug!("connecting to {}", url);
-    let mut es = EventSource::get(url);
-    debug!("created event source");
-    while let Some(event) = es.next().await {
-        match event {
-            Ok(Event::Open) => debug!("connection open"),
-            Ok(Event::Message(message)) => match message.event.as_str() {
-                "now-playing" => {
-                    let now_playing: NowPlaying = serde_json::from_str(&message.data).unwrap();
-                    match scrobbler.set_now_playing(Some(now_playing)).await {
-                        Ok(()) => debug!("done processing now playing"),
-                        Err(err) => error!("error setting now playing: {}", err),
+    loop {
+        let url = format!("http://127.0.0.1:{}/events", config.port);
+        debug!("connecting to {}", url);
+        let mut es = EventSource::get(url);
+        debug!("created event source");
+        while let Some(event) = es.next().await {
+            match event {
+                Ok(Event::Open) => debug!("connection open"),
+                Ok(Event::Message(message)) => match message.event.as_str() {
+                    "now-playing" => {
+                        let now_playing: NowPlaying = serde_json::from_str(&message.data).unwrap();
+                        match scrobbler.set_now_playing(Some(now_playing)).await {
+                            Ok(()) => debug!("done processing now playing"),
+                            Err(err) => error!("error setting now playing: {}", err),
+                        }
                     }
-                }
-                "playlist-empty" => {
-                    debug!("playlist empty");
-                    match scrobbler.set_now_playing(None).await {
-                        Ok(()) => debug!("done processing now playing"),
-                        Err(err) => error!("error setting now playing: {}", err),
+                    "playlist-empty" => {
+                        debug!("playlist empty");
+                        match scrobbler.set_now_playing(None).await {
+                            Ok(()) => debug!("done processing now playing"),
+                            Err(err) => error!("error setting now playing: {}", err),
+                        }
                     }
+                    "paused" => {
+                        debug!("paused");
+                    }
+                    _ => error!("unknown event: {}", message.event),
+                },
+                Err(err) => {
+                    println!("Error: {}", err);
+                    es.close();
                 }
-                "paused" => {
-                    debug!("paused");
-                }
-                _ => error!("unknown event: {}", message.event),
-            },
-            Err(err) => {
-                println!("Error: {}", err);
-                es.close();
             }
+
+            let _ = storage::save_json("scrobbler", &scrobbler);
         }
 
-        let _ = storage::save_json("scrobbler", &scrobbler);
+        // TODO: exponential backoff(?)
+
+        // reconnect after 5 seconds
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
     }
 }
