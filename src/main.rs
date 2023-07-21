@@ -7,19 +7,21 @@ mod web_framework;
 use audio_source::{AudioMetadata, AudioSource};
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, IOType, SampleFormat};
-use log::{error, info};
+use log::{debug, error, info};
 use player_state::*;
 use serde::Serialize;
 use serde_json;
 use std::borrow::BorrowMut;
 
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use web_framework::{HttpMethod, HttpResponseCode};
 
 use crate::storage::save_json;
+use crate::web_framework::HttpResponse;
 
 #[derive(Serialize)]
 struct PlayerStatusResponse<'a> {
@@ -87,8 +89,8 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                 // fill with silence
                 let Args { mut data, .. } = args;
                 for channel in data.channels_mut() {
-                    for i in 0..channel.len() {
-                        channel[i] = 0.0;
+                    for sample in channel.as_mut() {
+                        *sample = 0.0;
                     }
                 }
                 Ok(())
@@ -103,8 +105,8 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                 // if the playlist is empty, fill with silence
                 if locked_ps.playlist.len() == 0 {
                     for channel in data.channels_mut() {
-                        for i in 0..channel.len() {
-                            channel[i] = 0.0;
+                        for sample in channel.as_mut() {
+                            *sample = 0.0;
                         }
                     }
                     return Ok(());
@@ -187,6 +189,65 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
         }
     });
 
+    let mut subscribers: Arc<Mutex<Vec<HttpResponse>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let update_loop_ps = player_state_mutex.clone();
+    let update_loop_subs = subscribers.clone();
+    thread::spawn(move || {
+        let mut sse_id = 0;
+        let mut prev_state = update_loop_ps.lock().unwrap().state;
+        let mut prev_playlist_len = update_loop_ps.lock().unwrap().playlist.len();
+
+        // send now-playing events every 5 seconds
+        loop {
+            thread::sleep(std::time::Duration::from_secs(5));
+            debug!(
+                "sending event to {} subs",
+                update_loop_subs.lock().unwrap().len()
+            );
+            let mut ps = update_loop_ps.lock().unwrap();
+
+            if let Some(now_playing) = ps.now_playing() {
+                let now_playing_str = serde_json::to_string(&now_playing).unwrap();
+                update_loop_subs.lock().unwrap().retain_mut(|res| {
+                    match res.send_sse(sse_id, "now-playing", &now_playing_str) {
+                        Ok(_) => true,
+                        Err(err) => {
+                            info!("removing subscriber: {}", err);
+                            false
+                        }
+                    }
+                });
+                sse_id += 1;
+            } else if ps.playlist.len() == 0 && prev_playlist_len > 0 {
+                update_loop_subs.lock().unwrap().retain_mut(|res| {
+                    match res.send_sse(sse_id, "playlist-empty", "") {
+                        Ok(_) => true,
+                        Err(err) => {
+                            info!("removing subscriber: {}", err);
+                            false
+                        }
+                    }
+                });
+                sse_id += 1;
+            } else if prev_state == PlaybackState::Playing && ps.state == PlaybackState::Paused {
+                update_loop_subs.lock().unwrap().retain_mut(|res| {
+                    match res.send_sse(sse_id, "paused", "") {
+                        Ok(_) => true,
+                        Err(err) => {
+                            info!("removing subscriber: {}", err);
+                            false
+                        }
+                    }
+                });
+                sse_id += 1;
+            }
+
+            prev_state = ps.state;
+            prev_playlist_len = ps.playlist.len();
+        }
+    });
+
     for stream in listener.incoming() {
         let mut should_save = false;
         let mut stream = stream.unwrap();
@@ -194,7 +255,7 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
         {
             let mut player_state = ps.lock().unwrap();
 
-            let (req, mut res) = web_framework::handle_connection(stream.borrow_mut());
+            let (req, mut res) = web_framework::handle_connection(stream);
 
             match req {
                 Ok(req) => match (&req.method, req.path.as_str(), &req) {
@@ -267,6 +328,22 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                             }
                         }
                     }
+                    (HttpMethod::Get, "/events", req) => match req.headers.get("accept") {
+                        Some(accept) if accept == "text/event-stream" => {
+                            res.response_code = HttpResponseCode::Ok;
+                            match res.prep_sse() {
+                                Ok(_) => {
+                                    subscribers.lock().unwrap().push(res);
+                                }
+                                Err(err) => {
+                                    error!("error preparing sse: {}", err);
+                                }
+                            }
+                        }
+                        _ => {
+                            res.response_code = HttpResponseCode::BadRequest;
+                        }
+                    },
                     _ => {
                         res.response_code = HttpResponseCode::NotFound;
                     }

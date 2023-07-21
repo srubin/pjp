@@ -1,12 +1,17 @@
+use std::borrow::BorrowMut;
+
 use serde::{Deserialize, Serialize};
 
-use crate::audio_file::{self, AudioFileSource};
+use crate::{
+    audio_file::{self, AudioFileSource},
+    audio_source::{AudioMetadata, AudioSource},
+};
 
 // TODO?: could be AudioSource in theory, but serialization doesn't make as much sense for all formats.
 // The use case right now is just playing files, anyway.
 type Playlist = Vec<AudioFileSource>;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq, Eq, Copy, Clone)]
 pub enum PlaybackState {
     Playing,
     Paused,
@@ -19,7 +24,15 @@ pub struct PlayerState {
     pub playlist: Playlist,
     pub current_item: usize,
     pub current_offset: u32,
+    pub current_item_start_ts: u64,
     pub consume: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NowPlaying {
+    pub track: AudioMetadata,
+    pub elapsed: f64,
+    pub start_ts: u64,
 }
 
 impl Default for PlayerState {
@@ -29,6 +42,7 @@ impl Default for PlayerState {
             playlist: vec![],
             current_item: 0,
             current_offset: 0,
+            current_item_start_ts: 0,
             consume: true,
         }
     }
@@ -43,11 +57,12 @@ impl PlayerState {
         self.playlist.clear();
         self.current_item = 0;
         self.current_offset = 0;
+        self.current_item_start_ts = 0;
         self
     }
 
     pub fn next(&mut self) -> &mut Self {
-        if self.playlist.len() > 0 {
+        if !self.playlist.is_empty() {
             self.current_offset = 0;
             if self.consume {
                 self.playlist.remove(self.current_item);
@@ -55,6 +70,15 @@ impl PlayerState {
                 self.current_item = (self.current_item + 1) % self.playlist.len();
             }
         }
+        self.current_item_start_ts =
+            if !self.playlist.is_empty() && self.state == PlaybackState::Playing {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            } else {
+                0
+            };
         self
     }
 
@@ -63,6 +87,12 @@ impl PlayerState {
             // skipping to a previous song; never consume
             self.current_item = index;
             self.current_offset = 0;
+            if self.state == PlaybackState::Playing {
+                self.current_item_start_ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+            }
         } else if index > self.current_item {
             let diff = index - self.current_item;
             for _ in 0..diff {
@@ -72,6 +102,12 @@ impl PlayerState {
         } else {
             // same track, reset playhead
             self.current_offset = 0;
+            if self.state == PlaybackState::Playing {
+                self.current_item_start_ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+            }
         }
         self
     }
@@ -83,6 +119,12 @@ impl PlayerState {
 
     pub fn play(&mut self) -> &mut Self {
         self.state = PlaybackState::Playing;
+        if self.current_item_start_ts == 0 {
+            self.current_item_start_ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+        }
         self
     }
 
@@ -94,11 +136,21 @@ impl PlayerState {
     }
 
     pub fn add_tracks(&mut self, paths: Vec<String>) -> &mut Self {
+        let init_playlist_len = self.playlist.len();
         for path in paths {
-            let src = audio_file::AudioFileSource::new(path.into());
+            let src = audio_file::AudioFileSource::new(path);
             self.playlist.push(src);
         }
         self.validate();
+        if !self.playlist.is_empty()
+            && init_playlist_len == 0
+            && self.state == PlaybackState::Playing
+        {
+            self.current_item_start_ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+        }
         self
     }
 
@@ -107,5 +159,19 @@ impl PlayerState {
         self.playlist
             .retain(|src| std::path::Path::new(&src.filename).exists());
         self
+    }
+
+    pub fn now_playing(&mut self) -> Option<NowPlaying> {
+        if !self.playlist.is_empty() && self.state == PlaybackState::Playing {
+            let playlist: &mut Playlist = self.playlist.borrow_mut();
+            let track = playlist.get_mut(self.current_item).unwrap();
+            Some(NowPlaying {
+                track: track.get_metadata().clone(),
+                elapsed: self.current_offset as f64 / 44100.0,
+                start_ts: self.current_item_start_ts,
+            })
+        } else {
+            None
+        }
     }
 }

@@ -32,11 +32,12 @@ pub enum HttpResponseCode {
     BadRequest,
 }
 
-pub struct HttpResponse<'a> {
-    stream: &'a TcpStream,
+pub struct HttpResponse {
+    stream: TcpStream,
     pub headers: HashMap<String, String>,
     pub response_code: HttpResponseCode,
     json_body: Option<String>,
+    sent_response: bool,
 }
 
 impl FromStr for HttpMethod {
@@ -111,13 +112,14 @@ impl TryFrom<&mut TcpStream> for HttpRequest {
     }
 }
 
-impl HttpResponse<'_> {
-    pub fn new(stream: &mut TcpStream) -> HttpResponse {
+impl HttpResponse {
+    pub fn new(stream: TcpStream) -> HttpResponse {
         HttpResponse {
             stream,
             headers: HashMap::new(),
             response_code: HttpResponseCode::Ok,
             json_body: None,
+            sent_response: false,
         }
     }
 
@@ -127,10 +129,14 @@ impl HttpResponse<'_> {
     {
         self.json_body = Some(serde_json::to_string(value).unwrap());
     }
-}
 
-impl Drop for HttpResponse<'_> {
-    fn drop(&mut self) {
+    fn send_response(&mut self) {
+        // TODO: error handing
+
+        if self.sent_response {
+            return;
+        }
+
         let mut response = String::from("HTTP/1.1 ");
 
         response.push_str(match self.response_code {
@@ -166,10 +172,38 @@ impl Drop for HttpResponse<'_> {
         }
 
         self.stream.write_all(response.as_bytes()).unwrap();
+
+        self.sent_response = true;
+    }
+
+    pub fn prep_sse(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.headers.insert(
+            String::from("Content-Type"),
+            String::from("text/event-stream"),
+        );
+        self.send_response();
+        Ok(())
+    }
+
+    pub fn send_sse(
+        &mut self,
+        id: u32,
+        event: &str,
+        data: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let response = format!("id: {}\nevent: {}\ndata: {}\n\n", id, event, data);
+        self.stream.write_all(response.as_bytes())?;
+        Ok(())
     }
 }
 
-pub fn handle_connection(stream: &mut TcpStream) -> (Result<HttpRequest, ()>, HttpResponse) {
+impl Drop for HttpResponse {
+    fn drop(&mut self) {
+        self.send_response();
+    }
+}
+
+pub fn handle_connection(mut stream: TcpStream) -> (Result<HttpRequest, ()>, HttpResponse) {
     let req = HttpRequest::try_from(stream.borrow_mut());
     let res: HttpResponse = HttpResponse::new(stream);
     (req, res)

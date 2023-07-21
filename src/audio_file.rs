@@ -234,7 +234,7 @@ impl AudioSource for AudioFileSource {
 
     fn get_metadata(&mut self) -> &AudioMetadata {
         match self.metadata {
-            Some(ref metadata) => return metadata,
+            Some(ref metadata) => metadata,
             None => {
                 let codec_params = match (self.format.borrow_mut(), self.track_id) {
                     (Some(ref format), Some(track_id)) => {
@@ -255,7 +255,7 @@ impl AudioSource for AudioFileSource {
                 let time_base = codec_params.time_base.unwrap();
                 let n_frames = codec_params.n_frames.unwrap();
                 let time = time_base.calc_time(n_frames);
-                let dur = time.seconds as f64 + time.frac as f64;
+                let dur = time.seconds as f64 + time.frac;
 
                 let mut metadata = AudioMetadata {
                     dur,
@@ -286,7 +286,7 @@ impl AudioSource for AudioFileSource {
                 }
 
                 self.metadata = Some(metadata);
-                &self.metadata.as_ref().unwrap()
+                self.metadata.as_ref().unwrap()
             }
         }
     }

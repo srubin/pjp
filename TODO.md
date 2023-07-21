@@ -9,11 +9,14 @@ pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases o
 
 Roughly prioritized (highest at top)
 
-- [ ] Scrobble plays to last.fm to replace mpdscribble
+- [ ] Save playlist when closing
+- [ ] Refactor to separate web server from the player. Getting playlist metadata shouldn't interfere with playback, but right now it does because that operation is on the shared player state mutex
+  - [ ] Bug: occasional glitching during playback. Potential culprits: decoding in the render loop (do more prefetching),
+    - From copilot: audio unit buffer size (try increasing), audio unit render thread priority (try increasing), audio unit render thread scheduling (try real-time scheduling)
+- [ ] Bug: connecting bluetooth headphones while playing causes audio to stop (sometimes)
 - [ ] Close audio unit when not playing
 - [ ] Gapless playback between tracks
 - [ ] Prefetch first 5 seconds of every song in the playlist for instant track skipping
-- [ ] Refactor to separate web server from the player
 - [ ] Tiny crossfade when switching tracks?
 - [ ] Tune track buffer cache
 - [ ] Scheduling system for determining when to do work (e.g., reading file tags) without affecting the playback thread? Only matters right now because we're locking the entire player state during the audio unit render callback. We probably don't need to do that.
@@ -22,10 +25,18 @@ Roughly prioritized (highest at top)
 
 ### In progress
 
+- [ ] Scrobble plays to last.fm to replace mpdscribble
+  - [x] Decide on architecture. Separate executable, getting data from pjp via the pjp web server? SSE? (Going with separate executable and SSE)
+  - [ ] Write up arch
+  - [x] Implement MVP
+  - [ ] Simplify control flow. Job queue w/ backoff for sending data to last.fm, etc.)? State machine?
+  - [ ] unit tests
 - [ ] [Raycast](https://www.raycast.com/) extension for controlling pjp
   - [x] next / toggle / add song / add album
   - [x] playlist listing
-  - [ ] Replace mpc search with beets search
+  - [x] skip-to in playlist
+  - [x] Replace mpc search with beets search
+  - [ ] Set loved track in last.fm
   - [ ] include in this repo?
 - [ ] Learn rust idioms and best practices
 

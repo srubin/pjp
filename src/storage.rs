@@ -1,7 +1,7 @@
 extern crate directories;
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use serde_json;
+
 use std::fs::{create_dir_all, File};
 
 use directories::ProjectDirs;
@@ -10,12 +10,20 @@ use directories::ProjectDirs;
 #[serde(default)]
 pub struct PjpConfig {
     pub port: String,
+    pub last_fm_api_key: Option<String>,
+    pub last_fm_username: Option<String>,
+    pub last_fm_password: Option<String>,
+    pub last_fm_secret_key: Option<String>,
 }
 
 impl Default for PjpConfig {
     fn default() -> Self {
         PjpConfig {
             port: "7878".into(),
+            last_fm_api_key: None,
+            last_fm_username: None,
+            last_fm_password: None,
+            last_fm_secret_key: None,
         }
     }
 }
@@ -30,7 +38,7 @@ pub fn load_config() -> PjpConfig {
             let config: PjpConfig = serde_json::from_reader(config_file).unwrap();
             info!(
                 "loaded config from {}",
-                config_path.clone().to_str().unwrap(),
+                config_path.to_str().unwrap(),
             );
             config
         }
