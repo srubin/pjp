@@ -10,6 +10,7 @@ pjp ([Pepper's Jam][pj] Player) is a replacement for ([my particular use cases o
 Roughly prioritized (highest at top)
 
 - [ ] Save playlist when closing
+- [ ] Add random album to playlist when it's empty
 - [ ] Refactor to separate web server from the player. Getting playlist metadata shouldn't interfere with playback, but right now it does because that operation is on the shared player state mutex
   - [ ] Bug: occasional glitching during playback. Potential culprits: decoding in the render loop (do more prefetching),
     - From copilot: audio unit buffer size (try increasing), audio unit render thread priority (try increasing), audio unit render thread scheduling (try real-time scheduling)
