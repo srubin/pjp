@@ -7,7 +7,7 @@ mod web_framework;
 use audio_source::{AudioMetadata, AudioSource};
 use coreaudio::audio_unit::render_callback::{self, data};
 use coreaudio::audio_unit::{AudioUnit, IOType, SampleFormat};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use player_state::*;
 use serde::Serialize;
 use serde_json;
@@ -80,11 +80,13 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
 
     type Args = render_callback::Args<data::NonInterleaved<f32>>;
     audio_unit.set_render_callback(move |args| {
+        let start_ts = std::time::Instant::now();
+
         let mut locked_ps = ps.lock().unwrap();
 
         let _current_item = locked_ps.current_item;
 
-        match locked_ps.state {
+        let res = match locked_ps.state {
             PlaybackState::Paused => {
                 // fill with silence
                 let Args { mut data, .. } = args;
@@ -165,7 +167,18 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
 
                 Ok(())
             }
+        };
+
+        let elapsed = start_ts.elapsed();
+        let target_duration_millis = (args.num_frames as f64 / 44100.0 * 1000.0) as u128;
+        if elapsed.as_millis() >= target_duration_millis {
+            warn!(
+                "render callback took {}ms; likely caused audio playback issue",
+                elapsed.as_millis()
+            );
         }
+
+        res
     })?;
     audio_unit.start()?;
 
@@ -207,41 +220,29 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
             );
             let mut ps = update_loop_ps.lock().unwrap();
 
-            if let Some(now_playing) = ps.now_playing() {
-                let now_playing_str = serde_json::to_string(&now_playing).unwrap();
-                update_loop_subs.lock().unwrap().retain_mut(|res| {
-                    match res.send_sse(sse_id, "now-playing", &now_playing_str) {
-                        Ok(_) => true,
-                        Err(err) => {
-                            info!("removing subscriber: {}", err);
-                            false
-                        }
-                    }
-                });
+            update_loop_subs.lock().unwrap().retain_mut(|res| {
+                let (event, data) = if let Some(now_playing) = ps.now_playing() {
+                    let now_playing_str = serde_json::to_string(&now_playing).unwrap();
+                    ("now-playing", now_playing_str)
+                } else if ps.playlist.len() == 0 && prev_playlist_len > 0 {
+                    ("playlist-empty", "".to_string())
+                } else if prev_state == PlaybackState::Playing && ps.state == PlaybackState::Paused
+                {
+                    ("paused", "".to_string())
+                } else {
+                    return true;
+                };
+
+                let id = sse_id;
                 sse_id += 1;
-            } else if ps.playlist.len() == 0 && prev_playlist_len > 0 {
-                update_loop_subs.lock().unwrap().retain_mut(|res| {
-                    match res.send_sse(sse_id, "playlist-empty", "") {
-                        Ok(_) => true,
-                        Err(err) => {
-                            info!("removing subscriber: {}", err);
-                            false
-                        }
+                match res.send_sse(id, event, &data) {
+                    Ok(_) => true,
+                    Err(err) => {
+                        info!("removing subscriber: {}", err);
+                        false
                     }
-                });
-                sse_id += 1;
-            } else if prev_state == PlaybackState::Playing && ps.state == PlaybackState::Paused {
-                update_loop_subs.lock().unwrap().retain_mut(|res| {
-                    match res.send_sse(sse_id, "paused", "") {
-                        Ok(_) => true,
-                        Err(err) => {
-                            info!("removing subscriber: {}", err);
-                            false
-                        }
-                    }
-                });
-                sse_id += 1;
-            }
+                }
+            });
 
             prev_state = ps.state;
             prev_playlist_len = ps.playlist.len();
