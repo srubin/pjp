@@ -180,6 +180,10 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
 
         res
     })?;
+
+    // if player_state_mutex.lock().unwrap().state == PlaybackState::Playing {
+    //     audio_unit.start()?;
+    // }
     audio_unit.start()?;
 
     let ps = player_state_mutex.clone();
@@ -255,6 +259,8 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
 
         {
             let mut player_state = ps.lock().unwrap();
+
+            let is_playing = player_state.state == PlaybackState::Playing;
 
             let (req, mut res) = web_framework::handle_connection(stream);
 
@@ -354,6 +360,16 @@ fn run_pjp() -> Result<(), coreaudio::Error> {
                     res.response_code = HttpResponseCode::InternalServerError;
                 }
             }
+
+            let should_play = player_state.state == PlaybackState::Playing;
+
+            // if is_playing && !should_play {
+            //     info!("stopping audio unit");
+            //     audio_unit.stop()?;
+            // } else if !is_playing && should_play {
+            //     info!("starting audio unit");
+            //     audio_unit.start()?;
+            // }
         } // player_state lock scope ends here
 
         if should_save {
